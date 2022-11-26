@@ -1,99 +1,55 @@
 package main
 
 import (
-	"errors"
-	"flag"
-	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
-	"os"
 	"strings"
+
+	"github.com/kashifsoofi/reqbud/internal/options"
 )
 
-type header struct {
-	name  string
-	value string
-}
-
-type headerFlag []header
-
-func (f *headerFlag) String() string {
-	return ""
-}
-
-func (f *headerFlag) Set(arg string) error {
-	name, value, found := strings.Cut(arg, ":")
-	if !found {
-		return errors.New("invalid header, must be name:value")
+func createRequest(method, url string, headers options.HeaderFlag, data string) (*http.Request, error) {
+	var body io.Reader
+	if len(data) > 0 {
+		body = strings.NewReader(data)
 	}
 
-	*f = append(*f, header{
-		name,
-		value,
-	})
-	return nil
-}
-
-type Options struct {
-	URL      string
-	Headers  headerFlag
-	ShowHelp bool
-}
-
-func parseArguments() Options {
-	flag.Usage = func() {
-		w := flag.CommandLine.Output()
-		fmt.Fprintf(w, "Usage: reqbud [options...] <url>\n")
-		// flag.PrintDefaults()
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, err
 	}
 
-	var defaultOptions Options
-	var options = defaultOptions
-
-	// flag.BoolVar(&options.ShowHelp, "help", defaultOptions.ShowHelp, "This help text")
-	flag.BoolVar(&options.ShowHelp, "h", defaultOptions.ShowHelp, "This help text")
-
-	headers := headerFlag{}
-	// flag.Var(&headers, "header", "Pass custom header(s) to server")
-	flag.Var(&headers, "H", "Pass custom header(s) to server")
-
-	flag.Parse()
-	options.Headers = headers
-
-	if options.ShowHelp {
-		w := flag.CommandLine.Output()
-		fmt.Fprintf(w, "Usage: reqbud [options...] <url>\n")
-		flag.PrintDefaults()
+	for _, h := range headers {
+		req.Header.Add(h.Name, h.Value)
 	}
 
-	url := flag.Arg(0)
-	if len(url) == 0 {
-		fmt.Println("type 'reqbud -h' for more information")
-		os.Exit(0)
-	}
-	options.URL = url
-
-	return options
+	return req, nil
 }
 
 func main() {
-	opts := parseArguments()
+	opts := options.ParseArguments()
 
-	resp, err := http.Get(opts.URL)
+	req, err := createRequest(opts.Request, opts.URL, opts.Headers, opts.Data)
 	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Println(resp.StatusCode)
 		log.Fatalf("http.get error %v\n", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Fatalf("http.get error %v\n", err)
 	}
 
 	log.Println(string(body))
 
-	for name, values := range resp.Header {
-		log.Printf("%s: %v\n", name, values)
-	}
+	// for name, values := range resp.Header {
+	// 	log.Printf("%s: %v\n", name, values)
+	// }
 }
